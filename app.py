@@ -11,7 +11,6 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 from branca.colormap import LinearColormap
-from folium.plugins import Draw
 from shapely.geometry import Point, Polygon
 from streamlit_folium import st_folium
 
@@ -36,7 +35,7 @@ SCENARIO_DESCRIPTIONS = {
 
 AREA_MODE_DESCRIPTIONS = {
     "Фокусный сектор": "Автоматически показывает один из сильных локальных кластеров рекомендаций.",
-    "Ручной прямоугольник": "Нарисуйте область на карте и посмотрите локальный shortlist и оптимум внутри нее.",
+    "Ручной прямоугольник": "Кликните по двум противоположным углам прямоугольника и посмотрите локальный shortlist внутри него.",
     "Одна H3 ячейка": "Кликните по карте и проверьте, как модель оценивает конкретный гексагон.",
     "Вся Москва": "Показывает глобальную картину по всей столице и общегородской shortlist.",
 }
@@ -119,6 +118,31 @@ def polygon_from_drawings(drawings: list[dict] | None) -> Polygon | None:
     return Polygon(coords[0])
 
 
+def rectangle_from_corners(corner_a: tuple[float, float], corner_b: tuple[float, float]) -> Polygon:
+    lat1, lon1 = corner_a
+    lat2, lon2 = corner_b
+    min_lat, max_lat = sorted([lat1, lat2])
+    min_lon, max_lon = sorted([lon1, lon2])
+    return Polygon(
+        [
+            (min_lon, min_lat),
+            (max_lon, min_lat),
+            (max_lon, max_lat),
+            (min_lon, max_lat),
+            (min_lon, min_lat),
+        ]
+    )
+
+
+def nearest_cell(lat: float, lon: float, cells: pd.DataFrame) -> pd.Series:
+    query_cell = h3.latlng_to_cell(lat, lon, 9)
+    match = cells[cells["h3_index"] == query_cell]
+    if not match.empty:
+        return match.iloc[0]
+    idx = ((cells["lat"] - lat) ** 2 + (cells["lon"] - lon) ** 2).idxmin()
+    return cells.loc[idx]
+
+
 def filter_by_polygon(frame: pd.DataFrame, polygon: Polygon) -> pd.DataFrame:
     return frame[
         frame.apply(
@@ -137,6 +161,7 @@ def build_map(
     radius_km: float,
     selected_polygon: Polygon | None = None,
     selected_cell: str | None = None,
+    pending_corner: tuple[float, float] | None = None,
 ) -> folium.Map:
     show_city = area_mode in {"Вся Москва", "Ручной прямоугольник", "Одна H3 ячейка"}
     zoom_start = 10 if show_city else 13
@@ -165,20 +190,6 @@ def build_map(
             fill=False,
             dash_array="6 6",
             tooltip="Фокусный сектор",
-        ).add_to(m)
-
-    if area_mode == "Ручной прямоугольник":
-        Draw(
-            export=False,
-            draw_options={
-                "polyline": False,
-                "polygon": False,
-                "circle": False,
-                "circlemarker": False,
-                "marker": False,
-                "rectangle": True,
-            },
-            edit_options={"edit": True, "remove": True},
         ).add_to(m)
 
     if not display_cells.empty:
@@ -244,6 +255,18 @@ def build_map(
             tooltip=f"Выбранная H3-ячейка: {selected_cell}",
         ).add_to(m)
 
+    if pending_corner is not None:
+        folium.CircleMarker(
+            location=[pending_corner[0], pending_corner[1]],
+            radius=8,
+            color="#ff8c42",
+            weight=3,
+            fill=True,
+            fill_color="#ff8c42",
+            fill_opacity=0.96,
+            tooltip="Первая вершина прямоугольника зафиксирована",
+        ).add_to(m)
+
     return m
 
 
@@ -296,6 +319,10 @@ if "selected_h3" not in st.session_state:
     st.session_state["selected_h3"] = None
 if "selected_polygon" not in st.session_state:
     st.session_state["selected_polygon"] = None
+if "rectangle_corner_a" not in st.session_state:
+    st.session_state["rectangle_corner_a"] = None
+if "project_last_click_key" not in st.session_state:
+    st.session_state["project_last_click_key"] = None
 
 st.sidebar.title("Управление")
 scenario = st.sidebar.selectbox("Режим оптимизации", list(SCENARIO_WEIGHTS))
@@ -312,6 +339,8 @@ if st.sidebar.button("Вся Москва", use_container_width=True):
 if st.sidebar.button("Сбросить выделение", use_container_width=True):
     st.session_state["selected_h3"] = None
     st.session_state["selected_polygon"] = None
+    st.session_state["rectangle_corner_a"] = None
+    st.session_state["project_last_click_key"] = None
     st.rerun()
 
 st.sidebar.markdown("### Что делает режим")
@@ -325,10 +354,11 @@ with st.sidebar.expander("Как пользоваться демо", expanded=Tr
         1. Выберите бизнес-режим слева.
         2. Выберите область анализа:
            - `Фокусный сектор` для готового локального примера;
-           - `Ручной прямоугольник` для менеджерского сценария на карте;
+           - `Ручной прямоугольник`: первый клик ставит первую вершину, второй клик замыкает прямоугольник;
            - `Одна H3 ячейка` для анализа конкретного гексагона;
            - `Вся Москва` для общегородской картины.
-        3. В ручных режимах выделите область или кликните на ячейку.
+        3. В режиме прямоугольника третий клик начинает новое выделение.
+        4. В режиме H3 один клик выбирает ближайший гексагон.
         4. Ниже приложение локально пересчитает shortlist и оптимум уже только внутри выбранной зоны.
         """
     )
@@ -348,6 +378,7 @@ global_best = scenario_global.iloc[0]
 
 selected_polygon = st.session_state.get("selected_polygon")
 selected_h3 = st.session_state.get("selected_h3")
+pending_corner = st.session_state.get("rectangle_corner_a")
 
 if area_mode == "Фокусный сектор":
     analysis_features = focus_subset(features, global_best["lat"], global_best["lon"], focus_radius_km)
@@ -406,37 +437,48 @@ scenario_map = build_map(
     radius_km=focus_radius_km,
     selected_polygon=selected_polygon,
     selected_cell=selected_h3,
+    pending_corner=pending_corner,
 )
 returned = st_folium(
     scenario_map,
     width=None,
     height=720,
-    returned_objects=["last_clicked", "all_drawings"],
+    returned_objects=["last_clicked"],
 )
 
-if area_mode == "Ручной прямоугольник":
-    previous_polygon = st.session_state.get("selected_polygon")
-    drawn_polygon = polygon_from_drawings(returned.get("all_drawings") if returned else None)
-    previous_wkt = previous_polygon.wkt if previous_polygon is not None else None
-    current_wkt = drawn_polygon.wkt if drawn_polygon is not None else None
-    st.session_state["selected_polygon"] = drawn_polygon
-    selected_polygon = drawn_polygon
-    if previous_wkt != current_wkt:
-        st.rerun()
-    if selected_polygon is not None:
-        analysis_features = filter_by_polygon(features, selected_polygon)
-        area_label = "Пользовательский прямоугольник"
-elif area_mode == "Одна H3 ячейка" and returned and returned.get("last_clicked"):
+if returned and returned.get("last_clicked"):
     clicked = returned["last_clicked"]
-    selected_h3 = nearest_cell(clicked["lat"], clicked["lng"], features)["h3_index"]
-    if st.session_state.get("selected_h3") != selected_h3:
-        st.session_state["selected_h3"] = selected_h3
-        st.rerun()
+    click_key = f"{area_mode}:{clicked['lat']:.5f}:{clicked['lng']:.5f}"
+    if st.session_state.get("project_last_click_key") != click_key:
+        st.session_state["project_last_click_key"] = click_key
+        if area_mode == "Ручной прямоугольник":
+            if st.session_state.get("selected_polygon") is not None:
+                st.session_state["selected_polygon"] = None
+                st.session_state["rectangle_corner_a"] = (clicked["lat"], clicked["lng"])
+            elif st.session_state.get("rectangle_corner_a") is None:
+                st.session_state["rectangle_corner_a"] = (clicked["lat"], clicked["lng"])
+            else:
+                corner_a = st.session_state["rectangle_corner_a"]
+                st.session_state["selected_polygon"] = rectangle_from_corners(
+                    corner_a,
+                    (clicked["lat"], clicked["lng"]),
+                )
+                st.session_state["rectangle_corner_a"] = None
+            st.rerun()
+        elif area_mode == "Одна H3 ячейка":
+            selected_h3 = nearest_cell(clicked["lat"], clicked["lng"], features)["h3_index"]
+            if st.session_state.get("selected_h3") != selected_h3:
+                st.session_state["selected_h3"] = selected_h3
+                st.rerun()
 
 if area_mode == "Одна H3 ячейка" and st.session_state.get("selected_h3") is not None:
     selected_h3 = st.session_state["selected_h3"]
     analysis_features = features[features["h3_index"] == selected_h3].copy()
     area_label = f"Выбранная H3-ячейка {selected_h3}"
+elif area_mode == "Ручной прямоугольник" and st.session_state.get("selected_polygon") is not None:
+    selected_polygon = st.session_state["selected_polygon"]
+    analysis_features = filter_by_polygon(features, selected_polygon)
+    area_label = "Пользовательский прямоугольник"
 
 analysis_recs, optimal_n, best_obj, top_cell = compute_area_analysis(analysis_features, scenario, top_n)
 analysis_recs_full = analysis_recs.sort_values("selected_rank").copy()
