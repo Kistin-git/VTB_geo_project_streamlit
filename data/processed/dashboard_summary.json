@@ -1,0 +1,32 @@
+{
+  "balanced": {
+    "optimal_n": 65,
+    "best_cumulative_objective": 21.60941369992638,
+    "top_cell": "8911aa7abd3ffff"
+  },
+  "business": {
+    "optimal_n": 56,
+    "best_cumulative_objective": 14.736856846070761,
+    "top_cell": "8911aa7abd3ffff"
+  },
+  "competitor": {
+    "optimal_n": 56,
+    "best_cumulative_objective": 14.013325718838702,
+    "top_cell": "8911aa7abd3ffff"
+  },
+  "coverage": {
+    "optimal_n": 50,
+    "best_cumulative_objective": 10.626959381454443,
+    "top_cell": "8911aa7abd3ffff"
+  },
+  "profit": {
+    "optimal_n": 76,
+    "best_cumulative_objective": 36.27601060771306,
+    "top_cell": "8911aa7abd3ffff"
+  },
+  "social": {
+    "optimal_n": 40,
+    "best_cumulative_objective": 5.836829385316175,
+    "top_cell": "8911aa7abd3ffff"
+  }
+}

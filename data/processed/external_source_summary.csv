@@ -1,0 +1,11 @@
+source,records,status,confidence
+vtb_atm,0,ok,community_open_data
+competitor_atm,2214,ok,community_open_data
+vtb_branch,203,ok,community_open_data
+school,1002,ok,community_open_data
+university,195,ok,community_open_data
+hospital,1757,ok,community_open_data
+mall,303,ok,community_open_data
+supermarket,0,ok,community_open_data
+office,41,ok,community_open_data
+metro,6001,ok,community_open_data
