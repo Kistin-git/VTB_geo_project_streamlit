@@ -52,7 +52,13 @@ def apply_style() -> None:
               radial-gradient(circle at bottom right, rgba(17,48,92,0.12), transparent 30%),
               linear-gradient(180deg, #faf6ef 0%, #f0ebe2 100%);
           }
-          html, body, [class*="css"]  { font-family: 'Space Grotesk', sans-serif; }
+          html, body, [class*="css"]  {
+            font-family: 'Space Grotesk', sans-serif;
+            color: #10253f;
+          }
+          p, div, span, label, li, .stMarkdown, .stCaption {
+            color: #10253f;
+          }
           .hero {
             padding: 1.2rem 1.4rem;
             border-radius: 22px;
@@ -60,8 +66,9 @@ def apply_style() -> None:
             color: #f8f2e8;
             box-shadow: 0 18px 42px rgba(15,39,71,0.18);
           }
+          .hero, .hero * { color: #f8f2e8 !important; }
           .hero h1 { margin: 0; font-size: 2.25rem; }
-          .hero p { margin: 0.45rem 0 0 0; color: #d4dfef; max-width: 980px; }
+          .hero p { margin: 0.45rem 0 0 0; color: #d4dfef !important; max-width: 980px; }
           .soft-card {
             padding: 0.95rem 1rem;
             border-radius: 18px;
@@ -73,6 +80,14 @@ def apply_style() -> None:
             font-size: 0.88rem;
             color: #4a6079;
             margin-top: -0.3rem;
+          }
+          .map-help {
+            padding: 0.9rem 1rem;
+            border-radius: 16px;
+            background: rgba(255,255,255,0.82);
+            border: 1px solid rgba(15,39,71,0.08);
+            box-shadow: 0 10px 24px rgba(15,39,71,0.05);
+            margin-bottom: 0.8rem;
           }
           section[data-testid="stSidebar"] {
             background: linear-gradient(180deg, #fffaf2 0%, #f2ebdf 100%);
@@ -169,7 +184,7 @@ def build_map(
     m = folium.Map(
         location=map_center,
         zoom_start=zoom_start,
-        tiles="CartoDB Voyager",
+        tiles="OpenStreetMap",
         control_scale=True,
         prefer_canvas=True,
         max_zoom=17,
@@ -427,7 +442,49 @@ st.markdown(
 )
 
 st.markdown("### Карта сценария")
-st.caption("Нейтральная картография: слой улиц и зданий построен на CartoDB Voyager.")
+st.caption("Нейтральная картография: слой улиц и зданий построен на стандартном OpenStreetMap и открывается без VPN.")
+
+if area_mode == "Ручной прямоугольник":
+    if pending_corner is None and selected_polygon is None:
+        st.markdown(
+            """
+            <div class="map-help">
+              <b>Как выделить прямоугольник</b><br>
+              Первый клик ставит первую вершину. Второй клик ставит противоположную вершину и сразу замыкает область.
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    elif pending_corner is not None and selected_polygon is None:
+        st.markdown(
+            """
+            <div class="map-help">
+              <b>Первая вершина сохранена</b><br>
+              Сделайте второй клик по карте: будет построен прямоугольник и локальный shortlist пересчитается автоматически.
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            """
+            <div class="map-help">
+              <b>Прямоугольник выбран</b><br>
+              Локальные метрики и рекомендации ниже уже пересчитаны только внутри этой области. Следующий клик начнет новое выделение.
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+elif area_mode == "Одна H3 ячейка":
+    st.markdown(
+        """
+        <div class="map-help">
+          <b>Режим H3</b><br>
+          Кликните по карте один раз. Приложение выберет ближайший гексагон и покажет его локальную оценку как отдельного кандидата.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 scenario_map = build_map(
     display_cells=pre_map_cells,
@@ -444,6 +501,7 @@ returned = st_folium(
     width=None,
     height=720,
     returned_objects=["last_clicked"],
+    key="project_main_map",
 )
 
 if returned and returned.get("last_clicked"):

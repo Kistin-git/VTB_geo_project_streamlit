@@ -1,0 +1,182 @@
+\documentclass[aspectratio=169,12pt]{beamer}
+
+\usepackage{fontspec}
+\usepackage{polyglossia}
+\setdefaultlanguage{russian}
+\setmainfont{PT Sans}
+\setsansfont{PT Sans}
+\setmonofont{PT Mono}
+
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{ragged2e}
+
+\definecolor{vtbblue}{HTML}{0F2747}
+\definecolor{vtborange}{HTML}{FF8C42}
+\definecolor{vtblight}{HTML}{F6F1E8}
+\definecolor{vtbtext}{HTML}{10253F}
+
+\usetheme{Madrid}
+\setbeamercolor{normal text}{fg=vtbtext,bg=white}
+\setbeamercolor{structure}{fg=vtbblue}
+\setbeamercolor{title}{fg=white,bg=vtbblue}
+\setbeamercolor{frametitle}{fg=white,bg=vtbblue}
+\setbeamercolor{block title}{fg=white,bg=vtbblue}
+\setbeamercolor{block body}{fg=vtbtext,bg=vtblight}
+\setbeamercolor{item projected}{fg=white,bg=vtborange}
+\setbeamertemplate{navigation symbols}{}
+\setbeamertemplate{itemize item}{\color{vtborange}$\blacksquare$}
+\setbeamertemplate{itemize subitem}{\color{vtborange}$\bullet$}
+
+\title{Выбор новых зон для банкоматов ВТБ в Москве}
+\subtitle{Баланс плотности сети, экономического эффекта и сервисного покрытия}
+\author{VTB Geo Analytics}
+\date{Май 2026}
+
+\begin{document}
+
+\begin{frame}
+  \titlepage
+\end{frame}
+
+\begin{frame}{Как решалась задача баланса плотности сети и экономического эффекта}
+\small
+\begin{columns}[T]
+\begin{column}{0.60\textwidth}
+\begin{block}{Постановка задачи}
+\justifying
+Нельзя выбирать точки только по локальному баллу ячейки: такое решение приводит к перегреву центра, конкуренции новых банкоматов друг с другом и каннибализации действующей сети. Поэтому задача решалась как \textbf{последовательное расширение сети}, а не как выбор фиксированного набора \texttt{top-K}.
+\end{block}
+
+\begin{block}{Методология}
+\begin{enumerate}
+\item Москва агрегирована в \textbf{8\,154 H3-ячейки}, для каждой ячейки рассчитан потенциал спроса, покрытия и тип рекомендуемого устройства.
+\item Для каждой следующей точки оптимизатор заново считает \textbf{предельную полезность}: ожидаемый экономический эффект, вклад в покрытие, социальную полезность, конкурентное давление, релевантность малому бизнесу.
+\item Из этой полезности вычитаются \textbf{штрафы}: близость к уже действующим точкам ВТБ, близость к ранее выбранным новым точкам, риск и штраф за чрезмерное разрастание сети.
+\item На каждом шаге выбирается лучшая оставшаяся точка, а итоговое число новых банкоматов определяется как максимум \textbf{накопленной полезности сети}, а не заранее заданным числом.
+\end{enumerate}
+\end{block}
+\end{column}
+
+\begin{column}{0.40\textwidth}
+\begin{block}{Результат по сценариям}
+\centering
+\begin{tabular}{>{\raggedright\arraybackslash}p{0.47\linewidth} >{\centering\arraybackslash}p{0.28\linewidth}}
+\toprule
+Сценарий & Оптимум, новых ATM \\
+\midrule
+Сбалансированный & \textbf{65} \\
+Прибыль & 76 \\
+Покрытие & 50 \\
+Социальный & 40 \\
+Конкурентный & 56 \\
+Малый бизнес & 56 \\
+\bottomrule
+\end{tabular}
+\end{block}
+
+\begin{alertblock}{Ключевой вывод}
+\justifying
+Оптимум достигается \textbf{не в точке нулевого расширения}, а после добавления новых устройств. В базовом сбалансированном режиме максимум функции полезности достигается после \textbf{+65 новых банкоматов}. Это означает, что текущий восстановленный уровень присутствия ВТБ в Москве \textbf{недостаточен}, и сеть нужно наращивать.
+\end{alertblock}
+\end{column}
+\end{columns}
+\end{frame}
+
+\begin{frame}{Внутреннее устройство модели и причины выбранной архитектуры}
+\small
+\begin{columns}[T]
+\begin{column}{0.54\textwidth}
+\begin{block}{Как работали с данными}
+\begin{itemize}
+\item Внутренний слой кейса: \textbf{4.15 млн строк транзакций}, \textbf{69\,337 клиентов}, агрегирование до H3-сетки.
+\item Целевой слой: активность банкоматов и интенсивность спроса в ячейках.
+\item Внешнее обогащение: OpenStreetMap по Москве, метро, школы, вузы, больницы, торговля, офисы, плотность чужих ATM, близость к действующему присутствию ВТБ.
+\item Итоговый витринный слой: \textbf{131 признаков} на \textbf{8\,154 ячейках}.
+\end{itemize}
+\end{block}
+
+\begin{block}{Архитектура}
+\begin{itemize}
+\item \textbf{Классификатор CatBoost} оценивает вероятность того, что ячейка похожа на место с сильной ATM-активностью.
+\item \textbf{Регрессор CatBoost} прогнозирует интенсивность ATM-спроса в ячейке.
+\item Оба прогноза объединяются в \textbf{составной балл ячейки}, после чего отдельный блок выбирает подходящий тип устройства:
+\texttt{standard\_cash\_out}, \texttt{full\_service\_cash\_in\_qr}, \texttt{high\_flow\_24\_7}, \texttt{business\_cash\_in}.
+\item Поверх баллов работает \textbf{сетевой оптимизатор}, который отвечает уже не на вопрос ``где лучшая точка?'', а на вопрос ``какой набор новых точек даст лучший результат сети в целом?''.
+\end{itemize}
+\end{block}
+\end{column}
+
+\begin{column}{0.46\textwidth}
+\begin{block}{Почему выбрана именно такая схема}
+\begin{itemize}
+\item Данные табличные, разнородные и ограниченные по числу ячеек: для такой задачи градиентный бустинг надежнее и понятнее, чем тяжелая нейросетевая геомодель.
+\item Пространственная структура не теряется: она перенесена в признаки через H3-соседство, расстояния, плотности и пространственные лаги.
+\item Архитектура интерпретируема: можно объяснить вклад каждого блока признаков и причину выбора конкретной точки.
+\end{itemize}
+\end{block}
+
+\begin{block}{Бизнес-режимы и зачем они нужны}
+\begin{itemize}
+\item \textbf{Сбалансированный}: компромисс между доходом, охватом и плотностью сети.
+\item \textbf{Прибыль}: максимизация денежного потенциала.
+\item \textbf{Покрытие}: закрытие сервисных пустот.
+\item \textbf{Социальный}: доступность рядом со школами, вузами и медициной.
+\item \textbf{Конкурентный}: ответ на давление чужих сетей.
+\item \textbf{Малый бизнес}: приоритет cash-in и торгово-офисных кластеров.
+\end{itemize}
+\end{block}
+\end{column}
+\end{columns}
+\end{frame}
+
+\begin{frame}{Как подтверждали качество модели}
+\small
+\begin{columns}[T]
+\begin{column}{0.56\textwidth}
+\begin{block}{Схема проверки}
+\begin{itemize}
+\item Использована \textbf{пространственная кросс-проверка на 5 блоках}: обучение и проверка делятся по географическим зонам, чтобы модель не подсматривала соседние ячейки.
+\item Для классификации оценивались:
+\textbf{AUC}, \textbf{средняя точность}, \textbf{Precision@K}, \textbf{Recall@K}.
+\item Для ранжирования и интенсивности спроса оценивались:
+\textbf{RMSE}, \textbf{MAE}, \textbf{NDCG@K}.
+\item Сравнение велось не только с основной моделью, но и с простым базовым уровнем, чтобы показать реальный выигрыш, а не ``красивую'' цифру в отрыве от альтернатив.
+\end{itemize}
+\end{block}
+\end{column}
+
+\begin{column}{0.44\textwidth}
+\begin{block}{Средние метрики по 5 пространственным блокам}
+\centering
+\begin{tabular}{>{\raggedright\arraybackslash}p{0.50\linewidth} >{\centering\arraybackslash}p{0.22\linewidth}}
+\toprule
+Показатель & Значение \\
+\midrule
+AUC & \textbf{0.910} \\
+Средняя точность & \textbf{0.729} \\
+Precision@K & \textbf{0.700} \\
+Recall@K & \textbf{0.520} \\
+RMSE спроса & \textbf{50.88} \\
+NDCG@K & \textbf{0.782} \\
+\bottomrule
+\end{tabular}
+\end{block}
+
+\begin{block}{Сравнение с базовым уровнем}
+\begin{itemize}
+\item AUC: \textbf{0.910} против \textbf{0.859}
+\item Средняя точность: \textbf{0.729} против \textbf{0.688}
+\item RMSE спроса: \textbf{50.88} против \textbf{156.89}
+\end{itemize}
+\end{block}
+
+\begin{alertblock}{Честная оговорка}
+\justifying
+Экономический блок пока оценивает не бухгалтерскую прибыль, а прозрачный приближенный показатель прибыльности. Для внедрения в промышленную среду его нужно докалибровать на CAPEX, OPEX, инкассации и фактической стоимости площадки.
+\end{alertblock}
+\end{column}
+\end{columns}
+\end{frame}
+
+\end{document}
